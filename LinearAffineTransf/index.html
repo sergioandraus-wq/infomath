@@ -62,13 +62,33 @@
   .warn{color:var(--red)}
 
   /* ---------- stage ---------- */
-  #stage{position:relative;flex:1 1 auto;min-width:0}
+  #stage{min-height:150px;position:relative;flex:1 1 auto;min-width:0}
   canvas{display:block;cursor:grab;touch-action:none}
   canvas.dragging{cursor:grabbing}
   #hud{position:absolute;left:14px;bottom:12px;font-size:11px;color:#5b6f79;pointer-events:none;
     letter-spacing:.02em}
   #zoomBar{position:absolute;right:12px;bottom:12px;display:flex;gap:6px}
   #zoomBar button{width:30px;padding:4px 0;background:#151e24cc;backdrop-filter:blur(4px)}
+
+  /* shown only when the page is trapped inside someone else's iframe */
+  #expand{display:none;position:absolute;top:10px;right:10px;z-index:5;
+    align-items:center;justify-content:center;gap:6px;padding:8px 11px;
+    border:1px solid #3a4d58;border-radius:6px;background:#141d23e6;backdrop-filter:blur(4px);
+    color:var(--accent);font:11px ui-monospace,Menlo,monospace;text-decoration:none;letter-spacing:.06em;
+    box-shadow:0 2px 10px #0008}
+  #expand:hover{background:#22303a;border-color:var(--accent)}
+  body.embedded #expand{display:flex}
+  @media (max-width:780px){ #expand{padding:11px 13px;font-size:12px} }
+
+  /* very short viewports (phone-sized embeds): keep the diagram readable */
+  @media (max-height:430px){
+    #stage{min-height:104px}
+    h1{font-size:11px}
+    .sub{display:none}
+    #panel{padding-top:9px}
+    #panel section{margin-bottom:9px;padding-bottom:8px}
+    #expand{margin-bottom:7px;padding:5px 6px}
+  }
 
   @media (max-width:780px){
     #zoomBar button{width:42px;padding:9px 0;font-size:14px}
@@ -133,6 +153,7 @@
   </aside>
 
   <main id="stage">
+    <a id="expand" href="https://sergioandraus-wq.github.io/infomath/LinearAffineTransf/" target="_blank" rel="noopener" title="Open the full-height version in a new tab">⤢ Full screen</a>
     <canvas id="c"></canvas>
     <div id="hud">drag or pinch to pan &amp; zoom · ⌘/Ctrl + scroll</div>
     <div id="zoomBar">
@@ -146,6 +167,14 @@
 <script>
 (() => {
   'use strict';
+
+  // If we're inside someone else's iframe (Google Sites, an LMS), the page
+  // gets a fixed box that may be far too small. Offer the standalone page.
+  try {
+    if (window.self !== window.top) document.body.classList.add('embedded');
+  } catch (_) {
+    document.body.classList.add('embedded');   // cross-origin frame: same conclusion
+  }
 
   // ───────────────────────────────── geometry of the tetromino ──
   const CELLS   = [[0,0],[0,1],[0,2],[1,0]];          // unit squares of the L piece
@@ -163,9 +192,13 @@
   const P  = (x, y) => [sx(x), sy(y)];
 
   function fitView() {
-    view.scale = 54;
+    // Choose the zoom from the box we actually got: a Google Sites / LMS embed
+    // can be only ~280px tall, where a fixed zoom would be unreadable.
+    const usable = Math.max(110, H - 24);
+    view.scale = clampScale(Math.min(64, Math.max(15, usable / 7.4)));
     view.cx = W / 2 - 1 * view.scale;      // centre the piece's centroid (1, 1.5)
     view.cy = H / 2 + 1.5 * view.scale;
+    view.userMoved = false;
   }
 
   function resize() {
@@ -173,6 +206,7 @@
     const dpr = Math.min(window.devicePixelRatio || 1, 2);
     const nw = Math.max(1, Math.round(r.width));
     const nh = Math.max(1, Math.round(r.height));
+    const hPrev = H;
     if (view.ready) { view.cx += (nw - W) / 2; view.cy += (nh - H) / 2; }
     W = nw; H = nh;
     canvas.width  = Math.round(W * dpr);
@@ -181,6 +215,7 @@
     canvas.style.height = H + 'px';
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     if (!view.ready) { view.ready = true; fitView(); }
+    else if (!view.userMoved && Math.abs(nh - hPrev) > 12) fitView();
     draw();
   }
 
@@ -524,7 +559,7 @@
       const now = pinchNow();
       if (pinchBase.dist > 4) {
         const f = now.dist / pinchBase.dist;
-        view.scale = clampScale(pinchBase.scale * f);
+        view.scale = clampScale(pinchBase.scale * f); view.userMoved = true; view.userMoved = true;
         // keep the world point under the midpoint fixed
         const wx = (pinchBase.mx - pinchBase.cx) / pinchBase.scale;
         const wy = (pinchBase.cy - pinchBase.my) / pinchBase.scale;
@@ -537,7 +572,7 @@
 
     if (dragBase) {
       const p = localPt(e);
-      view.cx = dragBase.cx + (p.x - dragBase.p.x);
+      view.cx = dragBase.cx + (p.x - dragBase.p.x); view.userMoved = true; view.userMoved = true; view.userMoved = true;
       view.cy = dragBase.cy + (p.y - dragBase.p.y);
       draw();
     }
@@ -580,7 +615,7 @@
     const wx = (mx - view.cx) / view.scale;
     const wy = (view.cy - my) / view.scale;
     const f = Math.exp(-e.deltaY * 0.0015);
-    view.scale = clampScale(view.scale * f);
+    view.scale = clampScale(view.scale * f); view.userMoved = true;
     view.cx = mx - wx * view.scale;
     view.cy = my + wy * view.scale;
     draw();
@@ -593,7 +628,7 @@
   function zoomBy(f) {
     const wx = (W/2 - view.cx) / view.scale;
     const wy = (view.cy - H/2) / view.scale;
-    view.scale = clampScale(view.scale * f);
+    view.scale = clampScale(view.scale * f); view.userMoved = true;
     view.cx = W/2 - wx * view.scale;
     view.cy = H/2 + wy * view.scale;
     draw();
@@ -605,6 +640,14 @@
   resize();
   window.addEventListener('resize', resize);
 })();
+
+  /* --- embedded-in-an-iframe handling --------------------------------- */
+  // Inside a Google Sites / LMS embed we get a fixed, often tiny box.
+  // Offer a way out to the standalone page (the sandbox allows popups).
+  try {
+    if (window.self !== window.top) document.body.classList.add('embedded');
+  } catch (_) { document.body.classList.add('embedded'); }
+
 </script>
 </body>
 </html>
